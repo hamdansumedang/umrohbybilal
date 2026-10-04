@@ -10,6 +10,39 @@ const COUCH_DB = process.env.COUCH_DB || 'obsidiannotes';
 const COUCH_USER = process.env.COUCH_USER || 'admin';
 const COUCH_PASS = process.env.COUCH_PASS || '';
 const VAULT_DIR = process.env.VAULT_DIR || path.join(__dirname, '..', 'Umroh By Bilal');
+const VAULT_PASS = process.env.VAULT_PASSPHRASE || '';
+const { createBackend } = require('./lib/livecouch');
+let couch = null, couchIndex = null; // { seq, notes, media, byRel }
+function getCouch() {
+  if (!couch) couch = createBackend({ couchUrl: COUCH_URL, db: COUCH_DB, user: COUCH_USER, pass: COUCH_PASS, passphrase: VAULT_PASS });
+  return couch;
+}
+const MIME = { '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.gif': 'image/gif', '.svg': 'image/svg+xml', '.webp': 'image/webp', '.bmp': 'image/bmp', '.pdf': 'application/pdf', '.mp4': 'video/mp4', '.webm': 'video/webm' };
+const mimeOf = (rel) => MIME[path.extname(rel).toLowerCase()] || 'application/octet-stream';
+// Index CouchDB terdekripsi (cache per update_seq).
+async function getCouchIndex() {
+  const seq = await getCouch().getSeq();
+  if (couchIndex && couchIndex.seq === seq) return couchIndex;
+  const { notes, media } = await getCouch().buildIndex();
+  // Ambil preview + links untuk note markdown (batasi 60 note, konkurensi 6).
+  const jobs = notes.filter(n => !n.binary).slice(0, 200);
+  let i = 0;
+  async function run() {
+    while (i < jobs.length) {
+      const n = jobs[i++];
+      try {
+        const c = await getCouch().getContent(n);
+        n.preview = (c.text || '').slice(0, 2000);
+        n.links = extractLinks(c.text || '');
+        n.mtime = n.mtime || Date.now();
+      } catch { n.preview = ''; n.links = []; }
+    }
+  }
+  await Promise.all(Array.from({ length: 6 }, run));
+  couchIndex = { seq, notes, media, byRel: new Map(notes.map(n => [n.rel, n])) };
+  return couchIndex;
+}
+const hasLocalVault = () => fs.existsSync(VAULT_DIR);
 
 if (!COUCH_PASS) {
   console.error('FATAL: COUCH_PASS kosong di .env — server tidak start biar tidak mengunci akun CouchDB.');
@@ -114,44 +147,79 @@ app.get('/api/docs', async (req, res) => {
   }
 });
 
-// Konten asli dari vault lokal (plaintext) — ini yang jadi "Obsidian live".
-app.get('/api/local-docs', (req, res) => {
+// Konten dari vault lokal bila ada, kalau tidak dari CouchDB terdekripsi.
+app.get('/api/local-docs', async (req, res) => {
   try {
-    if (!fs.existsSync(VAULT_DIR)) {
-      let sibling = [];
-      try { sibling = fs.readdirSync(path.join(__dirname, '..')); } catch {}
-      return res.status(500).json({ ok: false, error: 'VAULT_DIR tidak ketemu: ' + VAULT_DIR + ' (cwd=' + process.cwd() + ', isi folder sebelah: ' + sibling.slice(0, 10).join(', ') + '). Set env VAULT_DIR ke folder vault.' });
+    if (hasLocalVault()) {
+      const files = walkMd(VAULT_DIR, VAULT_DIR).slice(0, 2000);
+      const notes = files.map(({ full, rel }) => {
+        let text = '';
+        try { text = fs.readFileSync(full, 'utf8'); } catch {}
+        const st = fs.statSync(full);
+        const base = path.basename(rel).replace(/\.md$/i, '');
+        return {
+          id: rel, name: path.basename(rel),
+          base, rel,
+          links: extractLinks(text),
+          preview: text.slice(0, 2000),
+          mtime: st.mtimeMs, size: st.size
+        };
+      }).sort((a, b) => a.name.localeCompare(b.name));
+      const media = walkMedia(VAULT_DIR, VAULT_DIR).slice(0, 2000);
+      return res.json({ ok: true, count: notes.length, vault: VAULT_DIR, source: 'local', notes, media });
     }
-    const files = walkMd(VAULT_DIR, VAULT_DIR).slice(0, 2000);
-    const notes = files.map(({ full, rel }) => {
-      let text = '';
-      try { text = fs.readFileSync(full, 'utf8'); } catch {}
-      const st = fs.statSync(full);
-      const base = path.basename(rel).replace(/\.md$/i, '');
-      return {
-        id: rel, name: path.basename(rel),
-        base, rel,
-        links: extractLinks(text),
-        preview: text.slice(0, 2000),
-        mtime: st.mtimeMs, size: st.size
-      };
-    }).sort((a, b) => a.name.localeCompare(b.name));
-    const media = walkMedia(VAULT_DIR, VAULT_DIR).slice(0, 2000);
-    res.json({ ok: true, count: notes.length, vault: VAULT_DIR, notes, media });
+    const idx = await getCouchIndex();
+    const notes = idx.notes.filter(n => !n.binary).map(n => ({
+      id: n.rel, name: n.name, base: n.base, rel: n.rel,
+      links: n.links || [], preview: n.preview || '',
+      mtime: n.mtime || 0, size: n.size || 0
+    }));
+    res.json({ ok: true, count: notes.length, vault: 'couchdb:' + COUCH_DB, source: 'couch', notes, media: idx.media });
   } catch (e) {
     res.status(500).json({ ok: false, error: String(e.message || e) });
   }
 });
 
-app.get('/api/local-doc', (req, res) => {
+app.get('/api/local-doc', async (req, res) => {
   try {
     const rel = req.query.rel || req.query.id || '';
-    const full = path.join(VAULT_DIR, rel);
-    if (!full.startsWith(VAULT_DIR)) return res.status(400).json({ ok: false, error: 'path tidak valid' });
-    const text = fs.readFileSync(full, 'utf8');
-    res.json({ ok: true, id: rel, name: path.basename(rel), text, links: extractLinks(text) });
+    if (hasLocalVault()) {
+      const full = path.join(VAULT_DIR, rel);
+      if (!full.startsWith(VAULT_DIR)) return res.status(400).json({ ok: false, error: 'path tidak valid' });
+      try {
+        const text = fs.readFileSync(full, 'utf8');
+        return res.json({ ok: true, id: rel, name: path.basename(rel), text, links: extractLinks(text), source: 'local' });
+      } catch {}
+    }
+    const idx = await getCouchIndex();
+    const entry = idx.byRel.get(rel);
+    if (!entry) return res.status(404).json({ ok: false, error: 'note tidak ketemu: ' + rel });
+    const c = await getCouch().getContent(entry);
+    if (c.binary) return res.status(400).json({ ok: false, error: 'file biner, pakai /vault/' + rel });
+    res.json({ ok: true, id: rel, name: path.basename(rel), text: c.text, links: extractLinks(c.text), source: 'couch' });
   } catch (e) {
-    res.status(404).json({ ok: false, error: String(e.message || e) });
+    res.status(500).json({ ok: false, error: String(e.message || e) });
+  }
+});
+
+// Fallback /vault/* dari CouchDB bila file tidak ada di disk.
+app.get('/vault/*', async (req, res) => {
+  try {
+    const rel = decodeURIComponent(req.params[0] || '');
+    const idx = await getCouchIndex();
+    let entry = idx.byRel.get(rel);
+    if (!entry) {
+      const base = rel.split('/').pop().toLowerCase();
+      entry = idx.notes.find(n => n.rel.split('/').pop().toLowerCase() === base);
+    }
+    if (!entry) return res.status(404).send('tidak ketemu: ' + rel);
+    const c = await getCouch().getContent(entry);
+    if (!c.binary) return res.status(400).send('bukan file biner');
+    res.setHeader('Content-Type', mimeOf(entry.rel));
+    res.setHeader('Cache-Control', 'public, max-age=3600');
+    res.send(c.buffer);
+  } catch (e) {
+    res.status(500).send(String(e.message || e));
   }
 });
 

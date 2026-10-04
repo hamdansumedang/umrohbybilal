@@ -21,10 +21,15 @@ npm start
 - `GET /api/changes?since=...` — live poll
 - `GET /api/doc?id=...` — isi 1 note
 
-## Catatan E2E
+## Mode sumber data
 
-Jika vault terenkripsi, isi note tampil 🔒 di V1 (metadata + graph tetap live).
-V2: dekripsi penuh pakai `VAULT_PASSPHRASE` mengikuti format chunk LiveSync (HKDF/AES-GCM).
+- **Lokal** (di PC): kalau `VAULT_DIR` ada → baca file vault langsung (tercepat).
+- **CouchDB terdekripsi** (di hosting): kalau `VAULT_DIR` tidak ada → server merakit +
+  mendekripsi note + gambar langsung dari CouchDB pakai `VAULT_PASSPHRASE`
+  (lib resmi `@vrtmrz/livesync-commonlib`, E2E v2/HKDF). Tampilan sama persis.
+
+Env yang wajib di host: `COUCH_URL`, `COUCH_DB`, `COUCH_USER`, `COUCH_PASS`,
+`VAULT_PASSPHRASE`. Lihat `.env.example`.
 
 ## Deploy / GitHub
 
