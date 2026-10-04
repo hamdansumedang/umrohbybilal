@@ -39,7 +39,14 @@ async function health() {
 
 async function loadDocs() {
   const d = await j('/api/local-docs');
-  if (!d.ok) { $('#health').textContent = '○ ' + String(d.error).slice(0,140); return; }
+  if (!d.ok) {
+    const msg = String(d.error || 'local-docs gagal');
+    $('#health').textContent = '○ ' + msg.slice(0,120);
+    $('#health').style.color = '#e08a8a';
+    $('#count').textContent = '0';
+    $('#list').innerHTML = `<div class="errbox"><b>Vault tidak terbaca</b><p>${msg.replace(/</g,'&lt;')}</p><p>Set env <code>VAULT_DIR</code> di host ke folder vault, atau jalankan server di PC tempat vault berada.</p></div>`;
+    return;
+  }
   NOTES = d.notes;
   MEDIA = {};
   for (const m of (d.media || [])) MEDIA[m.split('/').pop().toLowerCase()] = m;

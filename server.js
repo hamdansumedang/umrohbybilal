@@ -117,7 +117,11 @@ app.get('/api/docs', async (req, res) => {
 // Konten asli dari vault lokal (plaintext) — ini yang jadi "Obsidian live".
 app.get('/api/local-docs', (req, res) => {
   try {
-    if (!fs.existsSync(VAULT_DIR)) return res.status(500).json({ ok: false, error: 'VAULT_DIR tidak ketemu: ' + VAULT_DIR });
+    if (!fs.existsSync(VAULT_DIR)) {
+      let sibling = [];
+      try { sibling = fs.readdirSync(path.join(__dirname, '..')); } catch {}
+      return res.status(500).json({ ok: false, error: 'VAULT_DIR tidak ketemu: ' + VAULT_DIR + ' (cwd=' + process.cwd() + ', isi folder sebelah: ' + sibling.slice(0, 10).join(', ') + '). Set env VAULT_DIR ke folder vault.' });
+    }
     const files = walkMd(VAULT_DIR, VAULT_DIR).slice(0, 2000);
     const notes = files.map(({ full, rel }) => {
       let text = '';
