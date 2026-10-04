@@ -1,0 +1,29 @@
+<!doctype html>
+<html lang="id">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>LiveSync Dashboard — Obsidian Live</title>
+<link rel="stylesheet" href="style.css">
+<script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+</head>
+<body>
+<header>
+  <button id="sideToggle" title="Tutup/buka sidebar (Ctrl+B)"><svg width="14" height="14" viewBox="0 0 16 16" fill="none" aria-hidden="true"><rect x="1.5" y="2.5" width="13" height="11" rx="1.5" stroke="currentColor" stroke-width="1.5"/><path d="M6 2.5v11" stroke="currentColor" stroke-width="1.5"/></svg></button>
+  <span class="dot" aria-hidden="true"></span><strong>LiveSync Dashboard</strong>
+  <span id="health">menghubungkan…</span>
+  <input id="q" placeholder="Cari note… ( / )">
+  <button id="reload"><svg width="13" height="13" viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="M13.5 8a5.5 5.5 0 1 1-1.6-3.9M13.5 1.5v3h-3" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg> Sync</button>
+</header>
+<main>
+  <aside id="files"><div class="pane-title">Vault (<span id="count">0</span>)<span class="ptools"><button id="foldAll" title="Tutup semua folder">–</button><button id="unfoldAll" title="Buka semua folder">+</button></span></div><div id="list"></div></aside>
+  <section id="view">
+    <div class="tabs"><button class="tab active" data-t="preview">Preview</button><button class="tab" data-t="graph">Graph</button><button class="tab" data-t="raw">Raw</button></div>
+    <div id="pane-preview"><h2 id="title">—</h2><div id="meta"></div><div id="backlinks"></div><article id="md"></article></div>
+    <div id="pane-graph" hidden><canvas id="cv"></canvas><div id="ghint">klik node untuk buka · drag node untuk geser · scroll untuk zoom · dobel-klik reset</div><div id="gctl"><button id="zin">+</button><button id="zout">−</button><button id="zreset">reset</button></div></div>
+    <div id="pane-raw" hidden><pre id="raw"></pre></div>
+  </section>
+</main>
+<script src="app.js"></script>
+</body>
+</html>
